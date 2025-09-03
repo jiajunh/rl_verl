@@ -728,10 +728,12 @@ class RayPPOTrainer:
                         v = values_full[i]
                         response_length = response_mask[i].sum()
                         v_list = v[:response_length].detach().cpu().tolist()
-                        values_list.append(sum(v_list) / len(v_list))
+                        values_list.append(v_list)
+                        # values_list.append(sum(v_list) / len(v_list))
 
                     # # # Make them available to the dumper (length must match n samples)
-                    reward_extra_infos_dict["avg_value"] = values_list
+                    # reward_extra_infos_dict["avg_value"] = values_list
+                    reward_extra_infos_dict["val_values"] = values_list
                 # --- END NEW ---
             # print(type(reward_extra_infos_dict["avg_value"]), len(reward_extra_infos_dict["avg_value"]))
 

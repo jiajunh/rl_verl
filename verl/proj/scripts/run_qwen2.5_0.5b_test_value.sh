@@ -3,7 +3,7 @@ set -x
 export CUDA_VISIBLE_DEVICES=0
 
 PROJECT_NAME='Qwen2.5-0.5B-Instruct_gsm8k_test'
-EXPERIMENT_NAME='test_TPPO'
+EXPERIMENT_NAME='test'
 
 MODEL_PATH=Qwen/Qwen2.5-0.5B-Instruct
 
@@ -12,8 +12,8 @@ TRAIN_DATA=/n/netscratch/kdbrantley_lab/Lab/jiajunh/test_verl/data/gsm8k_prompt/
 TEST_DATA=/n/netscratch/kdbrantley_lab/Lab/jiajunh/test_verl/data/gsm8k_prompt/test.parquet
 
 
-python -m verl.trainer.main_tppo \
-    algorithm.adv_estimator=egae \
+python -m verl.trainer.main_ppo \
+    algorithm.adv_estimator=gae \
     algorithm.lam=1.0 \
     data.train_files=$TRAIN_DATA \
     data.val_files=$TEST_DATA \
@@ -23,7 +23,7 @@ python -m verl.trainer.main_tppo \
     data.filter_overlong_prompts=True \
     data.truncation='error' \
     actor_rollout_ref.model.path=$MODEL_PATH \
-    actor_rollout_ref.actor.optim.lr=1e-6 \
+    actor_rollout_ref.actor.optim.lr=2e-6 \
     actor_rollout_ref.model.use_remove_padding=True \
     actor_rollout_ref.actor.ppo_mini_batch_size=2 \
     actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=1 \
@@ -36,7 +36,7 @@ python -m verl.trainer.main_tppo \
     actor_rollout_ref.rollout.name=vllm \
     actor_rollout_ref.rollout.dtype=bfloat16 \
     actor_rollout_ref.rollout.gpu_memory_utilization=0.5 \
-    critic.optim.lr=1e-5 \
+    critic.optim.lr=5e-5 \
     critic.model.use_remove_padding=True \
     critic.model.path=$MODEL_PATH \
     critic.model.enable_gradient_checkpointing=True \
@@ -57,7 +57,7 @@ python -m verl.trainer.main_tppo \
     trainer.resume_mode=disable \
     +trainer.validation_output_values=True \
     trainer.validation_data_dir=$VAL_GEN_SAVE_PATH \
-    trainer.val_before_train=False \
+    trainer.val_before_train=True \
     "$@"
     # actor_rollout_ref.actor.ulysses_sequence_parallel_size=2 \
     # critic.ulysses_sequence_parallel_size=2 \
