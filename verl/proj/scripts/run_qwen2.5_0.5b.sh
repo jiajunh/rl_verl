@@ -15,7 +15,7 @@ TEST_DATA=/n/netscratch/kdbrantley_lab/Lab/jiajunh/test_verl/data/gsm8k_prompt/t
 
 python -m verl.trainer.main_tppo \
     algorithm.adv_estimator=gae \
-    algorithm.lam=0.95 \
+    algorithm.lam=1.0 \
     data.train_files=$TRAIN_DATA \
     data.val_files=$TEST_DATA \
     data.train_batch_size=1024 \

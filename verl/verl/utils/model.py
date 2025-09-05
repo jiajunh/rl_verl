@@ -622,7 +622,6 @@ def patch_valuehead_model(model) -> None:
 
 def load_valuehead_model(local_path, torch_dtype, model_config, trust_remote_code):
     from transformers import AutoModelForCausalLM, AutoModelForTokenClassification, AutoModelForVision2Seq
-
     try:
         model = AutoModelForTokenClassification.from_pretrained(
             pretrained_model_name_or_path=local_path,
@@ -631,6 +630,10 @@ def load_valuehead_model(local_path, torch_dtype, model_config, trust_remote_cod
             attn_implementation="flash_attention_2",
             trust_remote_code=trust_remote_code,
         )
+        # add sigmoid
+        # model.score = nn.Sequential(model.score, nn.Sigmoid())
+        print("#"*30, "Model from AutoModelForTokenClassification ", "#"*30)
+        print(model)
         return model
     except BaseException as e:
         if not is_trl_available():
@@ -641,7 +644,6 @@ def load_valuehead_model(local_path, torch_dtype, model_config, trust_remote_cod
     assert is_trl_available()
 
     from trl import AutoModelForCausalLMWithValueHead
-
     if type(model_config) in AutoModelForVision2Seq._model_mapping.keys():
         module_class = AutoModelForVision2Seq
     else:
@@ -655,6 +657,9 @@ def load_valuehead_model(local_path, torch_dtype, model_config, trust_remote_cod
     )
     model = AutoModelForCausalLMWithValueHead.from_pretrained(ori_model)
     patch_valuehead_model(model)
+    # add sigmoid
+    print("#"*30, "Model from AutoModelForCausalLMWithValueHead ", "#"*30)
+    print(model)
     return model
 
 

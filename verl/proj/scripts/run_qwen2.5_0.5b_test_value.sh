@@ -6,6 +6,7 @@ PROJECT_NAME='Qwen2.5-0.5B-Instruct_gsm8k_test'
 EXPERIMENT_NAME='test'
 
 MODEL_PATH=Qwen/Qwen2.5-0.5B-Instruct
+# MODEL_PATH=deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B
 
 VAL_GEN_SAVE_PATH=/n/netscratch/kdbrantley_lab/Lab/jiajunh/test_verl/verl/proj/val_generation/test_value/${EXPERIMENT_NAME}
 TRAIN_DATA=/n/netscratch/kdbrantley_lab/Lab/jiajunh/test_verl/data/gsm8k_prompt/train.parquet

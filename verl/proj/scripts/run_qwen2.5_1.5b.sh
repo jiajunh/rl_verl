@@ -3,7 +3,7 @@ set -x
 export CUDA_VISIBLE_DEVICES=0,1
 
 PROJECT_NAME='Qwen2.5-1.5B-Instruct_math'
-EXPERIMENT_NAME='ppo_lam_1.0_output_val_values'
+EXPERIMENT_NAME='ppo_test_sigmoid_value'
 # EXPERIMENT_NAME='Qwen2.5-1.5B-Instruct_math_egae_window_256_half_mini_batch_size_no_removing'
 
 MODEL_PATH=Qwen/Qwen2.5-1.5B-Instruct
@@ -53,7 +53,7 @@ python -m verl.trainer.main_ppo \
     trainer.save_freq=-1 \
     trainer.test_freq=2 \
     trainer.use_legacy_worker_impl=auto \
-    trainer.total_epochs=20 \
+    trainer.total_epochs=10 \
     trainer.validation_data_dir=$VAL_GEN_SAVE_PATH \
     actor_rollout_ref.actor.ulysses_sequence_parallel_size=2 \
     critic.ulysses_sequence_parallel_size=2 \

@@ -4,7 +4,7 @@ export CUDA_VISIBLE_DEVICES=0,1
 
 PROJECT_NAME='DeepSeek-R1-Distill-Qwen-1.5B-math'
 # EXPERIMENT_NAME='DeepSeek-R1-Distill-Qwen-1.5B_tppo_window_512_no_removing'
-EXPERIMENT_NAME='vcppo_sample_4'
+EXPERIMENT_NAME='ppo_test_sigmoid_value'
 
 MODEL_PATH=deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B
 
@@ -13,7 +13,7 @@ TRAIN_DATA=/n/netscratch/kdbrantley_lab/Lab/jiajunh/test_verl/data/math/train.pa
 TEST_DATA=/n/netscratch/kdbrantley_lab/Lab/jiajunh/test_verl/data/math/test.parquet
 
 
-python -m verl.trainer.main_tppo \
+python -m verl.trainer.main_ppo \
     algorithm.adv_estimator=gae \
     algorithm.lam=1.0 \
     data.train_files=$TRAIN_DATA \
@@ -24,7 +24,7 @@ python -m verl.trainer.main_tppo \
     data.filter_overlong_prompts=True \
     data.truncation='error' \
     actor_rollout_ref.model.path=$MODEL_PATH \
-    actor_rollout_ref.actor.optim.lr=2e-6 \
+    actor_rollout_ref.actor.optim.lr=1e-6 \
     actor_rollout_ref.model.use_remove_padding=True \
     actor_rollout_ref.actor.ppo_mini_batch_size=256 \
     actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=4 \
@@ -54,18 +54,18 @@ python -m verl.trainer.main_tppo \
     trainer.save_freq=-1 \
     trainer.test_freq=5 \
     trainer.use_legacy_worker_impl=auto \
-    trainer.total_epochs=15 \
+    trainer.total_epochs=10 \
     trainer.validation_data_dir=$VAL_GEN_SAVE_PATH \
     actor_rollout_ref.actor.ulysses_sequence_parallel_size=2 \
     critic.ulysses_sequence_parallel_size=2 \
     trainer.resume_mode=disable \
     +data.num_workers=2 \
     +trainer.validation_output_values=True \
-    algorithm.use_vcppo=True \
-    algorithm.lam_pi=0.95 \
-    algorithm.lam_v=1.0 \
-    actor_rollout_ref.rollout.n=4 \
     "$@"
     # algorithm.tppo.window_length=512 \
     # algorithm.tppo.k=8 \
+    # algorithm.use_vcppo=True \
+    # algorithm.lam_pi=0.95 \
+    # algorithm.lam_v=1.0 \
+    # actor_rollout_ref.rollout.n=4 \
     
