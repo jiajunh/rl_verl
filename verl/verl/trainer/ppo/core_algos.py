@@ -127,6 +127,7 @@ class AdvantageEstimator(str, Enum):
     GRPO_PASSK = "grpo_passk"
     GPG = "gpg"
     EGAE = "egae"
+    OFF_POLICY_LAM_RETURN = "off_policy_lam_return"
     
 
 class AdaptiveKLController:
@@ -239,6 +240,52 @@ def compute_gae_advantage_return(
 
         returns = advantages + values
         advantages = verl_F.masked_whiten(advantages, response_mask)
+    return advantages, returns
+
+
+@register_adv_est(AdvantageEstimator.OFF_POLICY_LAM_RETURN)
+def compute_off_policy_lam_advantage_return(
+    token_level_rewards: torch.Tensor,
+    values: torch.Tensor,
+    response_mask: torch.Tensor,
+    gamma: torch.Tensor,
+    lam: torch.Tensor,
+    log_pi: torch.Tensor,
+    log_mu: torch.Tensor,
+):
+    # print(f"log_pi: {log_pi}")
+    # print(f"log_mu: {log_mu}")
+
+    with torch.no_grad():
+        nextvalues = 0
+        lastadv = 0
+        advantages_reversed = []
+        gen_len = token_level_rewards.shape[-1]
+        rho_reversed = []
+
+        mask = response_mask.bool()
+        log_pi = log_pi.masked_fill(~mask, 0.0)
+        log_mu = log_mu.masked_fill(~mask, 0.0)
+
+
+        for t in reversed(range(gen_len)):
+            delta = token_level_rewards[:, t] + gamma * nextvalues - values[:, t]
+            rho_t = torch.exp(log_pi[:, t] - log_mu[:, t])
+
+            lastadv_ = rho_t * (delta + gamma * lam * lastadv)
+
+            nextvalues = values[:, t] * response_mask[:, t] + (1 - response_mask[:, t]) * nextvalues
+            lastadv = lastadv_ * response_mask[:, t] + (1 - response_mask[:, t]) * lastadv
+
+            advantages_reversed.append(lastadv)
+            rho_reversed.append(rho_t)
+
+        advantages = torch.stack(advantages_reversed[::-1], dim=1)
+        # print(torch.stack(rho_reversed[::-1], dim=1))
+
+        returns = advantages + values
+        advantages = verl_F.masked_whiten(advantages, response_mask)
+
     return advantages, returns
 
 
@@ -1051,6 +1098,22 @@ def compute_policy_loss_kl_cov(
     pg_loss = agg_loss(loss_mat=pg_losses, loss_mask=response_mask, loss_agg_mode=loss_agg_mode)
 
     return pg_loss, torch.tensor(0.0), ppo_kl_abs, torch.tensor(0.0)
+
+
+@register_policy_loss("pg_no_ratio")
+def compute_policy_loss_no_ratio(
+    old_log_prob, 
+    log_prob, 
+    advantages, 
+    response_mask, 
+    loss_agg_mode="token-mean", 
+    config=None):
+    
+    loss_mat = -log_prob * advantages
+    pg_loss = agg_loss(loss_mat=loss_mat, loss_mask=response_mask, loss_agg_mode=loss_agg_mode)
+    # Return the same tuple shape as PPO’s compute_policy_loss
+    return pg_loss, torch.tensor(0.0), torch.tensor(0.0), torch.tensor(0.0)
+
 
 
 def compute_entropy_loss(logits, response_mask, loss_agg_mode: str = "token-mean"):

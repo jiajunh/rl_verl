@@ -3,7 +3,7 @@ set -x
 export CUDA_VISIBLE_DEVICES=0,1
 
 PROJECT_NAME='Qwen2.5-1.5B-Instruct_math'
-EXPERIMENT_NAME='ppo_test_sigmoid_value'
+EXPERIMENT_NAME='pg_and_off_policy_lam_returns'
 # EXPERIMENT_NAME='Qwen2.5-1.5B-Instruct_math_egae_window_256_half_mini_batch_size_no_removing'
 
 MODEL_PATH=Qwen/Qwen2.5-1.5B-Instruct
@@ -12,8 +12,10 @@ VAL_GEN_SAVE_PATH=/n/netscratch/kdbrantley_lab/Lab/jiajunh/test_verl/verl/proj/v
 TRAIN_DATA=/n/netscratch/kdbrantley_lab/Lab/jiajunh/test_verl/data/math/train.parquet
 TEST_DATA=/n/netscratch/kdbrantley_lab/Lab/jiajunh/test_verl/data/math/test.parquet
 
-python -m verl.trainer.main_ppo \
-    algorithm.adv_estimator=gae \
+# python -m verl.trainer.main_ppo \
+    # algorithm.adv_estimator=gae \
+python -m verl.trainer.main_off_policy_lam_returns \
+    algorithm.adv_estimator=off_policy_lam_return \
     algorithm.lam=1.0 \
     data.train_files=$TRAIN_DATA \
     data.val_files=$TEST_DATA \
@@ -60,6 +62,8 @@ python -m verl.trainer.main_ppo \
     trainer.resume_mode=disable \
     +data.num_workers=2 \
     +trainer.validation_output_values=True \
+    actor_rollout_ref.rollout.calculate_log_probs=True \
+    actor_rollout_ref.actor.policy_loss.loss_mode=pg_no_ratio \
     "$@"
     # algorithm.use_vcppo=True \
     # algorithm.lam_pi=0.95 \

@@ -4,7 +4,7 @@ export CUDA_VISIBLE_DEVICES=0,1
 
 PROJECT_NAME='DeepSeek-R1-Distill-Qwen-1.5B-math'
 # EXPERIMENT_NAME='DeepSeek-R1-Distill-Qwen-1.5B_tppo_window_512_no_removing'
-EXPERIMENT_NAME='ppo_test_sigmoid_value'
+EXPERIMENT_NAME='pg_off_policy_lam_returns'
 
 MODEL_PATH=deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B
 
@@ -13,8 +13,10 @@ TRAIN_DATA=/n/netscratch/kdbrantley_lab/Lab/jiajunh/test_verl/data/math/train.pa
 TEST_DATA=/n/netscratch/kdbrantley_lab/Lab/jiajunh/test_verl/data/math/test.parquet
 
 
-python -m verl.trainer.main_ppo \
-    algorithm.adv_estimator=gae \
+# python -m verl.trainer.main_ppo \
+#     algorithm.adv_estimator=gae \
+python -m verl.trainer.main_off_policy_lam_returns \
+    algorithm.adv_estimator=off_policy_lam_return \
     algorithm.lam=1.0 \
     data.train_files=$TRAIN_DATA \
     data.val_files=$TEST_DATA \
@@ -61,11 +63,6 @@ python -m verl.trainer.main_ppo \
     trainer.resume_mode=disable \
     +data.num_workers=2 \
     +trainer.validation_output_values=True \
+    actor_rollout_ref.rollout.calculate_log_probs=True \
+    actor_rollout_ref.actor.policy_loss.loss_mode=pg_no_ratio \
     "$@"
-    # algorithm.tppo.window_length=512 \
-    # algorithm.tppo.k=8 \
-    # algorithm.use_vcppo=True \
-    # algorithm.lam_pi=0.95 \
-    # algorithm.lam_v=1.0 \
-    # actor_rollout_ref.rollout.n=4 \
-    

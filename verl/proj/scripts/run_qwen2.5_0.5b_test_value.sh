@@ -12,9 +12,9 @@ VAL_GEN_SAVE_PATH=/n/netscratch/kdbrantley_lab/Lab/jiajunh/test_verl/verl/proj/v
 TRAIN_DATA=/n/netscratch/kdbrantley_lab/Lab/jiajunh/test_verl/data/gsm8k_prompt/train.parquet
 TEST_DATA=/n/netscratch/kdbrantley_lab/Lab/jiajunh/test_verl/data/gsm8k_prompt/test.parquet
 
-
-python -m verl.trainer.main_ppo \
-    algorithm.adv_estimator=gae \
+# algorithm.adv_estimator=off_policy_lam_return \
+python -m verl.trainer.main_off_policy_lam_returns \
+    algorithm.adv_estimator=off_policy_lam_return \
     algorithm.lam=1.0 \
     data.train_files=$TRAIN_DATA \
     data.val_files=$TEST_DATA \
@@ -52,13 +52,15 @@ python -m verl.trainer.main_ppo \
     trainer.n_gpus_per_node=1 \
     trainer.nnodes=1 \
     trainer.save_freq=-1 \
-    trainer.test_freq=1 \
+    trainer.test_freq=-1 \
     trainer.use_legacy_worker_impl=auto \
     trainer.total_training_steps=1 \
     trainer.resume_mode=disable \
-    +trainer.validation_output_values=True \
+    +trainer.validation_output_values=False \
     trainer.validation_data_dir=$VAL_GEN_SAVE_PATH \
-    trainer.val_before_train=True \
+    trainer.val_before_train=False \
+    actor_rollout_ref.rollout.calculate_log_probs=True \
+    actor_rollout_ref.actor.policy_loss.loss_mode=pg_no_ratio \
     "$@"
     # actor_rollout_ref.actor.ulysses_sequence_parallel_size=2 \
     # critic.ulysses_sequence_parallel_size=2 \

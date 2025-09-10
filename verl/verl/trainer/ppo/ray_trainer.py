@@ -261,6 +261,27 @@ def compute_advantage(
                 config.pf_ppo.get("reweight_method"),
                 config.pf_ppo.get("weight_pow"),
             )
+    elif adv_estimator == AdvantageEstimator.OFF_POLICY_LAM_RETURN:
+        # print("#"*60)
+        # print("#"*60)
+        # print(data.batch.keys())
+        advantages, returns = core_algos.compute_off_policy_lam_advantage_return(
+            token_level_rewards=data.batch["token_level_rewards"],
+            values=data.batch["values"],
+            response_mask=data.batch["response_mask"],
+            gamma=gamma,
+            lam=lam,
+            log_pi=data.batch["old_log_probs"],
+            log_mu=data.batch["rollout_log_probs"],
+        )
+        data.batch["advantages"] = advantages
+        data.batch["returns"] = returns
+        if config.get("use_pf_ppo", False):
+            data = core_algos.compute_pf_ppo_reweight_data(
+                data,
+                config.pf_ppo.get("reweight_method"),
+                config.pf_ppo.get("weight_pow"),
+            )
     elif adv_estimator == AdvantageEstimator.GRPO:
         # Initialize the mask for GRPO calculation
         grpo_calculation_mask = data.batch["response_mask"]
@@ -377,6 +398,8 @@ class RayPPOTrainer:
         if config.critic.enable is not None:
             self.use_critic = bool(config.critic.enable)
         elif self.config.algorithm.adv_estimator == AdvantageEstimator.GAE:
+            self.use_critic = True
+        elif self.config.algorithm.adv_estimator == AdvantageEstimator.OFF_POLICY_LAM_RETURN:
             self.use_critic = True
         else:
             warnings.warn(
@@ -1184,6 +1207,7 @@ class RayPPOTrainer:
                 # pass global_steps to trace
                 gen_batch.meta_info["global_steps"] = self.global_steps
                 gen_batch = gen_batch.repeat(repeat_times=self.config.actor_rollout_ref.rollout.n, interleave=True)
+
 
                 is_last_step = self.global_steps >= self.total_training_steps
 
