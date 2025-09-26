@@ -4,7 +4,7 @@ export CUDA_VISIBLE_DEVICES=0,1
 
 PROJECT_NAME='DeepSeek-R1-Distill-Qwen-1.5B-math'
 # EXPERIMENT_NAME='DeepSeek-R1-Distill-Qwen-1.5B_tppo_window_512_no_removing'
-EXPERIMENT_NAME='pg_off_policy_lam_returns'
+EXPERIMENT_NAME='ppo_no_ratio_off_policy_lam_returns'
 
 MODEL_PATH=deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B
 
@@ -29,12 +29,12 @@ python -m verl.trainer.main_off_policy_lam_returns \
     actor_rollout_ref.actor.optim.lr=1e-6 \
     actor_rollout_ref.model.use_remove_padding=True \
     actor_rollout_ref.actor.ppo_mini_batch_size=256 \
-    actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=4 \
+    actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=2 \
     actor_rollout_ref.actor.fsdp_config.param_offload=False \
     actor_rollout_ref.actor.fsdp_config.optimizer_offload=False \
     actor_rollout_ref.actor.use_kl_loss=False \
     actor_rollout_ref.model.enable_gradient_checkpointing=True \
-    actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=4 \
+    actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=2 \
     actor_rollout_ref.rollout.tensor_model_parallel_size=2 \
     actor_rollout_ref.rollout.name=vllm \
     actor_rollout_ref.rollout.dtype=bfloat16 \
@@ -43,7 +43,7 @@ python -m verl.trainer.main_off_policy_lam_returns \
     critic.model.use_remove_padding=True \
     critic.model.path=$MODEL_PATH \
     critic.model.enable_gradient_checkpointing=True \
-    critic.ppo_micro_batch_size_per_gpu=4 \
+    critic.ppo_micro_batch_size_per_gpu=2 \
     critic.model.fsdp_config.param_offload=False \
     critic.model.fsdp_config.optimizer_offload=False \
     algorithm.use_kl_in_reward=False \
@@ -64,5 +64,5 @@ python -m verl.trainer.main_off_policy_lam_returns \
     +data.num_workers=2 \
     +trainer.validation_output_values=True \
     actor_rollout_ref.rollout.calculate_log_probs=True \
-    actor_rollout_ref.actor.policy_loss.loss_mode=pg_no_ratio \
+    actor_rollout_ref.actor.policy_loss.loss_mode=ppo_no_ratio \
     "$@"

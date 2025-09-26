@@ -55,7 +55,7 @@ python -m verl.trainer.main_off_policy_lam_returns \
     trainer.save_freq=-1 \
     trainer.test_freq=2 \
     trainer.use_legacy_worker_impl=auto \
-    trainer.total_epochs=10 \
+    trainer.total_epochs=15 \
     trainer.validation_data_dir=$VAL_GEN_SAVE_PATH \
     actor_rollout_ref.actor.ulysses_sequence_parallel_size=2 \
     critic.ulysses_sequence_parallel_size=2 \
@@ -63,7 +63,7 @@ python -m verl.trainer.main_off_policy_lam_returns \
     +data.num_workers=2 \
     +trainer.validation_output_values=True \
     actor_rollout_ref.rollout.calculate_log_probs=True \
-    actor_rollout_ref.actor.policy_loss.loss_mode=pg_no_ratio \
+    actor_rollout_ref.actor.policy_loss.loss_mode=off_policy_adv \
     "$@"
     # algorithm.use_vcppo=True \
     # algorithm.lam_pi=0.95 \

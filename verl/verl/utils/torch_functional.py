@@ -223,6 +223,14 @@ def masked_whiten(values, mask, shift_mean=True):
     return whitened
 
 
+def masked_whiten_mean_var(values, mask, shift_mean=True):
+    mean, var = masked_mean(values, mask), masked_var(values, mask)
+    whitened = (values - mean) * torch.rsqrt(var + 1e-8)
+    if not shift_mean:
+        whitened += mean
+    return whitened, mean, var
+
+
 def get_response_mask(response_id: torch.Tensor, eos_token: int | list[int] = 2, dtype=torch.int64):
     """
     end of sentence token can be int or list: 1 or [1, 2]

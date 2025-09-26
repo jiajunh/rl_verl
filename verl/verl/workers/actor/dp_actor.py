@@ -323,7 +323,9 @@ class DataParallelPPOActor(BasePPOActor):
         temperature = data.meta_info["temperature"]  # temperature must be in the data.meta_info to avoid silent error
         use_dynamic_bsz = data.meta_info["use_dynamic_bsz"]
         has_multi_modal_inputs = "multi_modal_inputs" in data.non_tensor_batch.keys()
+
         select_keys = ["responses", "input_ids", "attention_mask", "position_ids"]
+
         non_tensor_select_keys = ["multi_modal_inputs"] if has_multi_modal_inputs else []
 
         data = data.select(batch_keys=select_keys, non_tensor_batch_keys=non_tensor_select_keys)
@@ -364,6 +366,10 @@ class DataParallelPPOActor(BasePPOActor):
         self.actor_module.train()
 
         temperature = data.meta_info["temperature"]  # temperature must be in the data.meta_info to avoid silent error
+        
+        if self.config.policy_loss.loss_mode == "off_policy_adv":
+            algo_gamma = data.meta_info["algorithm_gamma"]
+            algo_lam = data.meta_info["algorithm_lambda"]
 
         select_keys = [
             "responses",
@@ -374,6 +380,23 @@ class DataParallelPPOActor(BasePPOActor):
             "old_log_probs",
             "advantages",
         ]
+
+        if self.config.policy_loss.loss_mode == "off_policy_adv":
+            select_keys = [
+                "responses",
+                "response_mask",
+                "input_ids",
+                "attention_mask",
+                "position_ids",
+                "old_log_probs",
+                "token_level_rewards",
+                "values",
+                "advantages",
+                "rollout_log_probs",
+                "adv_mean",
+                "adv_var",
+            ]
+        
         if self.config.use_kl_loss:
             select_keys.append("ref_log_prob")
 
@@ -426,6 +449,67 @@ class DataParallelPPOActor(BasePPOActor):
                         model_inputs, temperature=temperature, calculate_entropy=calculate_entropy
                     )
 
+
+                    #############################################################
+                    ################# off-policy lambda returns #################
+                    #############################################################
+                    if self.config.policy_loss.loss_mode == "off_policy_adv":
+                        mask = model_inputs["response_mask"].float()
+                        token_level_rewards = model_inputs["token_level_rewards"].detach()
+                        values = model_inputs["values"].detach()
+                        log_mu = model_inputs["rollout_log_probs"]
+
+                        adv_mean = model_inputs["adv_mean"]
+                        adv_var = model_inputs["adv_var"]
+
+                        
+                        nextvalues = 0
+                        lastadv = 0
+                        advantages_reversed = []
+                        gen_len = token_level_rewards.shape[-1]
+                        rho_origin_reversed = []
+                        rho_reversed = []
+
+                        mask = response_mask.bool()
+                        log_pi = log_prob.masked_fill(~mask, 0.0)
+                        log_mu = log_mu.masked_fill(~mask, 0.0)
+
+                        for t in reversed(range(gen_len)):
+                            delta = token_level_rewards[:, t] + algo_gamma * nextvalues - values[:, t]
+                            
+                            # clip the rho for negative values for stable
+                            negative_log_rho = log_pi[:, t] - log_mu[:, t]
+                            negative_log_rho = torch.clamp(negative_log_rho, min=-20.0, max=20.0)
+                            
+                            rho_t = torch.exp(negative_log_rho)
+                            rho_origin_reversed.append(rho_t)
+                            rho_t = torch.clamp(rho_t, 1 - clip_ratio_low, 1 + clip_ratio_high)
+
+                            lastadv_ = rho_t * (delta + algo_gamma * algo_lam * lastadv)
+
+                            nextvalues = values[:, t] * response_mask[:, t] + (1 - response_mask[:, t]) * nextvalues
+                            lastadv = lastadv_ * response_mask[:, t] + (1 - response_mask[:, t]) * lastadv
+
+                            advantages_reversed.append(lastadv)
+                            rho_reversed.append(rho_t)
+
+                        rho = torch.stack(rho_reversed[::-1], dim=1)
+                        rho_origin = torch.stack(rho_origin_reversed[::-1], dim=1)
+
+                        advantages = torch.stack(advantages_reversed[::-1], dim=1)
+
+                        # normalize with given mean & var
+                        advantages = (advantages - adv_mean[0]) * torch.rsqrt(adv_var[0] + 1e-8)
+                        
+                        # print("adv")
+                        # print(advantages.shape)
+
+                        # print("rho")
+                        # print(rho[0])
+
+                    #############################################################
+                    #############################################################
+
                     loss_mode = self.config.policy_loss.get("loss_mode", "vanilla")
                     
 
@@ -452,6 +536,27 @@ class DataParallelPPOActor(BasePPOActor):
                             loss_agg_mode=loss_agg_mode,
                             config=self.config,
                         )
+
+                        #############################################################
+                        ################# off-policy lambda returns #################
+                        #############################################################
+                        if self.config.policy_loss.loss_mode == "off_policy_adv":
+                            pg_clipfrac = 1.0 - verl_F.masked_mean(rho == rho_origin, mask)
+                            
+                            # accumulated is along trajs
+                            accumulated_log_rho = torch.flip(torch.cumsum(torch.flip(torch.log(rho) * mask, dims=[1]), dim=1), dims=[1])
+                            is_product = torch.exp(accumulated_log_rho)
+
+                            accumulated_log_rho_origin = torch.flip(torch.cumsum(torch.flip(torch.log(rho_origin) * mask, dims=[1]), dim=1), dims=[1])
+                            is_origin_product = torch.exp(accumulated_log_rho_origin)
+                            
+                            is_product_mean = verl_F.masked_mean(is_product, mask)
+                            is_product_max = is_product.max()
+                            is_origin_product_mean = verl_F.masked_mean(is_origin_product, mask)
+                            is_origin_product_max = is_origin_product.max()
+
+                        #############################################################
+
 
                     if entropy_coeff != 0:
                         entropy_loss = agg_loss(loss_mat=entropy, loss_mask=response_mask, loss_agg_mode=loss_agg_mode)
@@ -488,6 +593,17 @@ class DataParallelPPOActor(BasePPOActor):
                             "actor/pg_clipfrac_lower": pg_clipfrac_lower.detach().item(),
                         }
                     )
+
+                    if self.config.policy_loss.loss_mode == "off_policy_adv":
+                        micro_batch_metrics.update(
+                            {
+                                "IS_after_clip_product_mean": is_product_mean.detach().item(),
+                                "IS_after_clip_product_max": is_product_max.detach().item(),
+                                "IS_before_clip_product_mean": is_origin_product_mean.detach().item(),
+                                "IS_before_clip_product_max": is_origin_product_max.detach().item(),
+                            }
+                        )
+
                     append_to_dict(metrics, micro_batch_metrics)
 
                 grad_norm = self._optimizer_step()

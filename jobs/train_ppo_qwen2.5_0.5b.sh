@@ -2,7 +2,7 @@
 
 #SBATCH --job-name=train_ppo_qwen2.5_0.5b
 #SBATCH --mem=24G
-#SBATCH -t 0-8:00
+#SBATCH -t 0-01:00
 #SBATCH -p gpu_requeue
 #SBATCH -o /n/netscratch/kdbrantley_lab/Lab/jiajunh/test_verl/logs/train_qwen2.5_0.5b_%j.out
 #SBATCH -e /n/netscratch/kdbrantley_lab/Lab/jiajunh/test_verl/logs/train_qwen2.5_0.5b_%j.err

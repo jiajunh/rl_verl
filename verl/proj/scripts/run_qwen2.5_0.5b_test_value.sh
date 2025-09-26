@@ -18,7 +18,7 @@ python -m verl.trainer.main_off_policy_lam_returns \
     algorithm.lam=1.0 \
     data.train_files=$TRAIN_DATA \
     data.val_files=$TEST_DATA \
-    data.train_batch_size=2 \
+    data.train_batch_size=64 \
     data.max_prompt_length=512 \
     data.max_response_length=512 \
     data.filter_overlong_prompts=True \
@@ -26,13 +26,13 @@ python -m verl.trainer.main_off_policy_lam_returns \
     actor_rollout_ref.model.path=$MODEL_PATH \
     actor_rollout_ref.actor.optim.lr=2e-6 \
     actor_rollout_ref.model.use_remove_padding=True \
-    actor_rollout_ref.actor.ppo_mini_batch_size=2 \
+    actor_rollout_ref.actor.ppo_mini_batch_size=32 \
     actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=1 \
     actor_rollout_ref.actor.fsdp_config.param_offload=False \
     actor_rollout_ref.actor.fsdp_config.optimizer_offload=False \
     actor_rollout_ref.actor.use_kl_loss=False \
     actor_rollout_ref.model.enable_gradient_checkpointing=True \
-    actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=2 \
+    actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=1 \
     actor_rollout_ref.rollout.tensor_model_parallel_size=1 \
     actor_rollout_ref.rollout.name=vllm \
     actor_rollout_ref.rollout.dtype=bfloat16 \
@@ -41,7 +41,7 @@ python -m verl.trainer.main_off_policy_lam_returns \
     critic.model.use_remove_padding=True \
     critic.model.path=$MODEL_PATH \
     critic.model.enable_gradient_checkpointing=True \
-    critic.ppo_micro_batch_size_per_gpu=2 \
+    critic.ppo_micro_batch_size_per_gpu=1 \
     critic.model.fsdp_config.param_offload=False \
     critic.model.fsdp_config.optimizer_offload=False \
     algorithm.use_kl_in_reward=False \
@@ -54,13 +54,13 @@ python -m verl.trainer.main_off_policy_lam_returns \
     trainer.save_freq=-1 \
     trainer.test_freq=-1 \
     trainer.use_legacy_worker_impl=auto \
-    trainer.total_training_steps=1 \
+    trainer.total_training_steps=5 \
     trainer.resume_mode=disable \
-    +trainer.validation_output_values=False \
+    +trainer.validation_output_values=True \
     trainer.validation_data_dir=$VAL_GEN_SAVE_PATH \
     trainer.val_before_train=False \
     actor_rollout_ref.rollout.calculate_log_probs=True \
-    actor_rollout_ref.actor.policy_loss.loss_mode=pg_no_ratio \
+    actor_rollout_ref.actor.policy_loss.loss_mode=off_policy_adv \
     "$@"
     # actor_rollout_ref.actor.ulysses_sequence_parallel_size=2 \
     # critic.ulysses_sequence_parallel_size=2 \

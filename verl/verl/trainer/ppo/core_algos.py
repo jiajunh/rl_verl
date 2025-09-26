@@ -252,9 +252,9 @@ def compute_off_policy_lam_advantage_return(
     lam: torch.Tensor,
     log_pi: torch.Tensor,
     log_mu: torch.Tensor,
+    clip_ratio_low,
+    clip_ratio_high,
 ):
-    # print(f"log_pi: {log_pi}")
-    # print(f"log_mu: {log_mu}")
 
     with torch.no_grad():
         nextvalues = 0
@@ -270,7 +270,12 @@ def compute_off_policy_lam_advantage_return(
 
         for t in reversed(range(gen_len)):
             delta = token_level_rewards[:, t] + gamma * nextvalues - values[:, t]
+
+            negative_log_rho = log_pi[:, t] - log_mu[:, t]
+            negative_log_rho = torch.clamp(negative_log_rho, min=-20.0, max=20.0)
+
             rho_t = torch.exp(log_pi[:, t] - log_mu[:, t])
+            rho_t = torch.clamp(rho_t, 1 - clip_ratio_low, 1 + clip_ratio_high)
 
             lastadv_ = rho_t * (delta + gamma * lam * lastadv)
 
@@ -281,12 +286,17 @@ def compute_off_policy_lam_advantage_return(
             rho_reversed.append(rho_t)
 
         advantages = torch.stack(advantages_reversed[::-1], dim=1)
+        
         # print(torch.stack(rho_reversed[::-1], dim=1))
 
         returns = advantages + values
-        advantages = verl_F.masked_whiten(advantages, response_mask)
 
-    return advantages, returns
+        advantages, mean, var = verl_F.masked_whiten_mean_var(advantages, response_mask)
+
+        adv_mean = mean * torch.ones(advantages.shape[0])
+        adv_var = var * torch.ones(advantages.shape[0])
+
+    return advantages, returns, adv_mean, adv_var
 
 
 @register_adv_est(AdvantageEstimator.EGAE)
@@ -1100,21 +1110,21 @@ def compute_policy_loss_kl_cov(
     return pg_loss, torch.tensor(0.0), ppo_kl_abs, torch.tensor(0.0)
 
 
-@register_policy_loss("pg_no_ratio")
-def compute_policy_loss_no_ratio(
-    old_log_prob, 
-    log_prob, 
-    advantages, 
-    response_mask, 
-    loss_agg_mode="token-mean", 
-    config=None):
-    
-    loss_mat = -log_prob * advantages
-    pg_loss = agg_loss(loss_mat=loss_mat, loss_mask=response_mask, loss_agg_mode=loss_agg_mode)
-    # Return the same tuple shape as PPO’s compute_policy_loss
+@register_policy_loss("off_policy_adv")
+def compute_policy_loss_off_policy_adv(
+    old_log_prob: torch.Tensor,
+    log_prob: torch.Tensor,
+    advantages: torch.Tensor,
+    response_mask: torch.Tensor,
+    loss_agg_mode: str = "token-mean",
+    config: Optional[AlgoConfig] = None,
+):
+    # print("*"*60)
+    # print("*"*60)
+    # print(log_prob.requires_grad, advantages.requires_grad)
+    pg_loss = agg_loss(loss_mat=-advantages, loss_mask=response_mask, loss_agg_mode=loss_agg_mode)
     return pg_loss, torch.tensor(0.0), torch.tensor(0.0), torch.tensor(0.0)
-
-
+    
 
 def compute_entropy_loss(logits, response_mask, loss_agg_mode: str = "token-mean"):
     """Compute categorical entropy loss (For backward compatibility)
