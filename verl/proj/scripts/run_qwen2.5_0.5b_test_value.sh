@@ -18,13 +18,13 @@ python -m verl.trainer.main_off_policy_lam_returns \
     algorithm.lam=1.0 \
     data.train_files=$TRAIN_DATA \
     data.val_files=$TEST_DATA \
-    data.train_batch_size=64 \
+    data.train_batch_size=2 \
     data.max_prompt_length=512 \
     data.max_response_length=512 \
     data.filter_overlong_prompts=True \
     data.truncation='error' \
     actor_rollout_ref.model.path=$MODEL_PATH \
-    actor_rollout_ref.actor.optim.lr=2e-6 \
+    actor_rollout_ref.actor.optim.lr=1e-6 \
     actor_rollout_ref.model.use_remove_padding=True \
     actor_rollout_ref.actor.ppo_mini_batch_size=32 \
     actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=1 \
@@ -54,7 +54,7 @@ python -m verl.trainer.main_off_policy_lam_returns \
     trainer.save_freq=-1 \
     trainer.test_freq=-1 \
     trainer.use_legacy_worker_impl=auto \
-    trainer.total_training_steps=5 \
+    trainer.total_training_steps=2 \
     trainer.resume_mode=disable \
     +trainer.validation_output_values=True \
     trainer.validation_data_dir=$VAL_GEN_SAVE_PATH \

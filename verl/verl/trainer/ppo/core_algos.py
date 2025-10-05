@@ -128,6 +128,7 @@ class AdvantageEstimator(str, Enum):
     GPG = "gpg"
     EGAE = "egae"
     OFF_POLICY_LAM_RETURN = "off_policy_lam_return"
+    PPO_WITH_CV_FOR_VALUE = "ppo_with_cv_for_value"
     
 
 class AdaptiveKLController:
@@ -274,8 +275,8 @@ def compute_off_policy_lam_advantage_return(
             negative_log_rho = log_pi[:, t] - log_mu[:, t]
             negative_log_rho = torch.clamp(negative_log_rho, min=-20.0, max=20.0)
 
-            rho_t = torch.exp(log_pi[:, t] - log_mu[:, t])
-            rho_t = torch.clamp(rho_t, 1 - clip_ratio_low, 1 + clip_ratio_high)
+            rho_t = torch.exp(negative_log_rho)
+            # rho_t = torch.clamp(rho_t, 1 - clip_ratio_low, 1 + clip_ratio_high)
 
             lastadv_ = rho_t * (delta + gamma * lam * lastadv)
 
@@ -297,6 +298,91 @@ def compute_off_policy_lam_advantage_return(
         adv_var = var * torch.ones(advantages.shape[0])
 
     return advantages, returns, adv_mean, adv_var
+
+
+@register_adv_est(AdvantageEstimator.PPO_WITH_CV_FOR_VALUE)
+def compute_ppo_gae_with_cv_for_value(
+    token_level_rewards: torch.Tensor,
+    values: torch.Tensor,
+    response_mask: torch.Tensor,
+    gamma: torch.Tensor,
+    lam: torch.Tensor,
+    log_pi: torch.Tensor,
+    log_mu: torch.Tensor,
+    clip_ratio_low,
+    clip_ratio_high,
+):
+
+    with torch.no_grad():
+        nextvalues = 0
+        nextvalues_is = 0
+        lastgaelam = 0
+        lastadv = 0
+        ppo_advantages_reversed = []
+        is_advantages_reversed = []
+        gen_len = token_level_rewards.shape[-1]
+        rho_reversed = []
+
+        mask = response_mask.bool()
+        log_pi = log_pi.masked_fill(~mask, 0.0)
+        log_mu = log_mu.masked_fill(~mask, 0.0)
+
+
+        for t in reversed(range(gen_len)):
+            # exactly the same as gae
+            delta = token_level_rewards[:, t] + gamma * nextvalues - values[:, t]
+            lastgaelam_ = delta + gamma * lam * lastgaelam
+
+            # skip values and TD-error on observation tokens
+            nextvalues = values[:, t] * response_mask[:, t] + (1 - response_mask[:, t]) * nextvalues
+            lastgaelam = lastgaelam_ * response_mask[:, t] + (1 - response_mask[:, t]) * lastgaelam
+
+            ppo_advantages_reversed.append(lastgaelam)
+
+
+            # #############################################
+            # Computing IS
+            # same computation in ppo IS
+            negative_log_rho = log_pi[:, t] - log_mu[:, t]
+            negative_log_rho = torch.clamp(negative_log_rho, min=-20.0, max=20.0)
+
+            rho_t = torch.exp(negative_log_rho)
+            rho_t_clip = torch.clamp(rho_t, 1 - clip_ratio_low, 1 + clip_ratio_high)
+ 
+            #############################################
+            # the clipped rho as ppo
+
+            # use_clip =  (rho_t - rho_t_clip) * lastgaelam > 0
+            # rho_t = torch.where(use_clip, rho_t_clip, rho_t)
+            rho_reversed.append(rho_t)
+            #############################################
+
+            lastadv_ = rho_t * (delta + gamma * lam * lastadv)
+            nextvalues_is = values[:, t] * response_mask[:, t] + (1 - response_mask[:, t]) * nextvalues_is
+            lastadv = lastadv_ * response_mask[:, t] + (1 - response_mask[:, t]) * lastadv
+
+            is_advantages_reversed.append(lastadv)
+
+
+        advantages = torch.stack(ppo_advantages_reversed[::-1], dim=1)
+        is_advantages = torch.stack(is_advantages_reversed[::-1], dim=1)
+        
+        # print(torch.stack(rho_reversed[::-1], dim=1))
+        rho = torch.stack(rho_reversed[::-1], dim=1)
+
+        returns = advantages + values
+        is_returns = is_advantages + values
+
+        advantages, mean, var = verl_F.masked_whiten_mean_var(advantages, response_mask)
+        is_advantages, is_mean, is_var = verl_F.masked_whiten_mean_var(is_advantages, response_mask)
+
+        adv_mean = mean * torch.ones(advantages.shape[0])
+        adv_var = var * torch.ones(advantages.shape[0])
+
+        adv_is_mean = is_mean * torch.ones(is_advantages.shape[0])
+        adv_is_var = is_var * torch.ones(is_advantages.shape[0])
+
+    return advantages, returns, adv_mean, adv_var, is_advantages, is_returns, adv_is_mean, adv_is_var
 
 
 @register_adv_est(AdvantageEstimator.EGAE)
@@ -927,6 +1013,7 @@ def compute_policy_loss(
     )
 
     pg_losses = torch.where(advantages < 0, clip_pg_losses2, clip_pg_losses1)
+
     pg_loss = agg_loss(loss_mat=pg_losses, loss_mask=response_mask, loss_agg_mode=loss_agg_mode)
 
     return pg_loss, pg_clipfrac, ppo_kl, pg_clipfrac_lower

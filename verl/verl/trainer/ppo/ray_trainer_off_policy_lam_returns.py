@@ -275,6 +275,36 @@ def compute_advantage(
                 config.pf_ppo.get("reweight_method"),
                 config.pf_ppo.get("weight_pow"),
             )
+
+    elif adv_estimator == AdvantageEstimator.PPO_WITH_CV_FOR_VALUE:
+        advantages, returns, mean, var, is_advantages, is_returns, is_mean, is_var = core_algos.compute_ppo_gae_with_cv_for_value(
+            token_level_rewards=data.batch["token_level_rewards"],
+            values=data.batch["values"],
+            response_mask=data.batch["response_mask"],
+            gamma=gamma,
+            lam=lam,
+            log_pi=data.batch["old_log_probs"],
+            log_mu=data.batch["rollout_log_probs"],
+            clip_ratio_low=clip_ratio_low,
+            clip_ratio_high=clip_ratio_high
+        )
+        data.batch["advantages"] = advantages
+        data.batch["returns"] = returns
+        data.batch["adv_mean"] = mean
+        data.batch["adv_var"] = var
+
+        data.batch["is_advantages"] = is_advantages
+        data.batch["is_returns"] = is_returns
+        data.batch["is_adv_mean"] = is_mean
+        data.batch["is_adv_var"] = is_var
+
+        if config.get("use_pf_ppo", False):
+            data = core_algos.compute_pf_ppo_reweight_data(
+                data,
+                config.pf_ppo.get("reweight_method"),
+                config.pf_ppo.get("weight_pow"),
+            )
+
     elif adv_estimator == AdvantageEstimator.GRPO:
         # Initialize the mask for GRPO calculation
         grpo_calculation_mask = data.batch["response_mask"]
@@ -393,6 +423,8 @@ class RayPPOTrainer:
         elif self.config.algorithm.adv_estimator == AdvantageEstimator.GAE:
             self.use_critic = True
         elif self.config.algorithm.adv_estimator == AdvantageEstimator.OFF_POLICY_LAM_RETURN:
+            self.use_critic = True
+        elif self.config.algorithm.adv_estimator == AdvantageEstimator.PPO_WITH_CV_FOR_VALUE:
             self.use_critic = True
         else:
             warnings.warn(
@@ -768,7 +800,8 @@ class RayPPOTrainer:
                 if "response_mask" not in test_batch.batch:
                     test_batch.batch["response_mask"] = compute_response_mask(test_batch)
 
-                if self.config.algorithm.adv_estimator == AdvantageEstimator.OFF_POLICY_LAM_RETURN:
+                if self.config.algorithm.adv_estimator == AdvantageEstimator.OFF_POLICY_LAM_RETURN or \
+                self.config.algorithm.adv_estimator == AdvantageEstimator.PPO_WITH_CV_FOR_VALUE:
                     with torch.no_grad():
                         old_log_prob = self.actor_rollout_wg.compute_log_prob(test_batch)
                     test_batch = test_batch.union(old_log_prob)
@@ -1366,7 +1399,7 @@ class RayPPOTrainer:
                             schedule_lam = start_lam + slope * (self.global_steps - 1)
                             metrics["algo/gae_lambda"] = float(schedule_lam)
 
-                        if self.config.algorithm.adv_estimator == AdvantageEstimator.OFF_POLICY_LAM_RETURN:
+                        elif self.config.algorithm.adv_estimator == AdvantageEstimator.OFF_POLICY_LAM_RETURN:
                             batch.meta_info["algorithm_lambda"] = float(self.config.algorithm.lam)
                             batch.meta_info["algorithm_gamma"] = float(self.config.algorithm.gamma)
                             
@@ -1391,21 +1424,46 @@ class RayPPOTrainer:
                                 clip_ratio_high=clip_ratio_high,
                             )
 
-                            # with torch.no_grad():
-                            #     log_pi = batch.batch["old_log_probs"]
-                            #     log_mu = batch.batch["rollout_log_probs"]
-                            #     mask  = batch.batch["response_mask"].float()
+                            metrics.update(
+                                {
+                                    "critic/advantage_mean_before_normalized": batch.batch["adv_mean"].mean().detach().item(),
+                                    "critic/advantage_var_before_normalized": batch.batch["adv_var"].mean().detach().item(),
+                                }
+                            )
 
-                            #     log_is = (log_pi - log_mu) * mask
+                        elif self.config.algorithm.adv_estimator == AdvantageEstimator.PPO_WITH_CV_FOR_VALUE:
+                            batch.meta_info["algorithm_lambda"] = float(self.config.algorithm.lam)
+                            batch.meta_info["algorithm_gamma"] = float(self.config.algorithm.gamma)
+                            
+                            clip_ratio = self.config.actor_rollout_ref.actor.clip_ratio
+                            clip_ratio_low = (
+                                self.config.actor_rollout_ref.actor.clip_ratio_low if self.config.actor_rollout_ref.actor.clip_ratio_low is not None else clip_ratio
+                            )
+                            clip_ratio_high = (
+                                self.config.actor_rollout_ref.actor.clip_ratio_high if self.config.actor_rollout_ref.actor.clip_ratio_high is not None else clip_ratio
+                            )
 
-                            #     logW_suffix = torch.flip(torch.cumsum(torch.flip(log_is, dims=[1]), dim=1), dims=[1])
-                            #     is_prod = torch.exp(logW_suffix)
+                            batch = compute_advantage(
+                                batch,
+                                adv_estimator=self.config.algorithm.adv_estimator,
+                                gamma=self.config.algorithm.gamma,
+                                lam=schedule_lam,
+                                num_repeat=self.config.actor_rollout_ref.rollout.n,
+                                norm_adv_by_std_in_grpo=norm_adv_by_std_in_grpo,
+                                config=self.config.algorithm,
+                                clip_ratio_low=clip_ratio_low,
+                                clip_ratio_high=clip_ratio_high,
+                            )
 
-                            #     metrics.update({
-                            #         "training/off-policy_response_token_IS_mean_before_clipping": (is_prod.sum() / mask.sum()).item(),
-                            #         "training/off-policy_response_token_IS_max_before_clipping": is_prod.max().item(),
-                            #         # "training/off-policy_response_token_log_IS_mean_before_clipping": (is_prod.sum() / mask.sum()).item(),
-                            #     })
+                            metrics.update(
+                                {
+                                    "critic/advantage_mean_before_normalized": batch.batch["adv_mean"].mean().detach().item(),
+                                    "critic/advantage_var_before_normalized": batch.batch["adv_var"].mean().detach().item(),
+                                    "critic/is_advantage_mean_before_normalized": batch.batch["is_adv_mean"].mean().detach().item(),
+                                    "critic/is_advantage_var_before_normalized": batch.batch["is_adv_var"].mean().detach().item(),
+                                }
+                            )
+
 
                         ##################################################
                         else:
@@ -1425,10 +1483,30 @@ class RayPPOTrainer:
 
                     # update critic
                     if self.use_critic:
+                        tp_ppo_advantages = None
+                        tp_ppo_returns = None
+                        tp_is_advantages = None
+                        tp_is_returns = None
+
+                        if self.config.algorithm.adv_estimator == AdvantageEstimator.PPO_WITH_CV_FOR_VALUE:
+                            tp_ppo_advantages = batch.batch["advantages"]
+                            tp_ppo_returns = batch.batch["returns"]
+
+                            tp_is_advantages = batch.batch["is_advantages"]
+                            tp_is_returns = batch.batch["is_returns"]
+
+                            batch.batch["advantages"] = tp_is_advantages
+                            batch.batch["returns"] = tp_is_returns
+
+
                         with marked_timer("update_critic", timing_raw, color="pink"):
                             critic_output = self.critic_wg.update_critic(batch)
                         critic_output_metrics = reduce_metrics(critic_output.meta_info["metrics"])
                         metrics.update(critic_output_metrics)
+
+                        if self.config.algorithm.adv_estimator == AdvantageEstimator.PPO_WITH_CV_FOR_VALUE:
+                            batch.batch["advantages"] = tp_ppo_advantages
+                            batch.batch["returns"] = tp_ppo_returns
 
                     # implement critic warmup
                     if self.config.trainer.critic_warmup <= self.global_steps:

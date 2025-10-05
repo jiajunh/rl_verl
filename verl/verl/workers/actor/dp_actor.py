@@ -49,6 +49,10 @@ logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
 
+def modified_clamp(x, low, high):
+    y = torch.clamp(x, low, high)
+    return x + (y - x).detach()
+
 class DataParallelPPOActor(BasePPOActor):
     """FSDP DataParallel PPO Actor or Ref worker
 
@@ -483,7 +487,7 @@ class DataParallelPPOActor(BasePPOActor):
                             
                             rho_t = torch.exp(negative_log_rho)
                             rho_origin_reversed.append(rho_t)
-                            rho_t = torch.clamp(rho_t, 1 - clip_ratio_low, 1 + clip_ratio_high)
+                            # rho_t = torch.clamp(rho_t, 1 - clip_ratio_low, 1 + clip_ratio_high)
 
                             lastadv_ = rho_t * (delta + algo_gamma * algo_lam * lastadv)
 
@@ -553,7 +557,10 @@ class DataParallelPPOActor(BasePPOActor):
                             is_product_mean = verl_F.masked_mean(is_product, mask)
                             is_product_max = is_product.max()
                             is_origin_product_mean = verl_F.masked_mean(is_origin_product, mask)
-                            is_origin_product_max = is_origin_product.max()
+                            is_origin_product_max = (is_origin_product * mask).max()
+
+                            single_is_origin_mean = verl_F.masked_mean(rho_origin, mask)
+                            single_is_origin_max = (rho_origin * mask).max()
 
                         #############################################################
 
@@ -597,6 +604,8 @@ class DataParallelPPOActor(BasePPOActor):
                     if self.config.policy_loss.loss_mode == "off_policy_adv":
                         micro_batch_metrics.update(
                             {
+                                "single_origin_IS_mean": single_is_origin_mean.detach().item(),
+                                "single_origin_IS_max": single_is_origin_max.detach().item(),
                                 "IS_after_clip_product_mean": is_product_mean.detach().item(),
                                 "IS_after_clip_product_max": is_product_max.detach().item(),
                                 "IS_before_clip_product_mean": is_origin_product_mean.detach().item(),

@@ -3,10 +3,9 @@ set -x
 export CUDA_VISIBLE_DEVICES=0
 
 PROJECT_NAME='Qwen2.5-0.5B-Instruct_gsm8k'
-EXPERIMENT_NAME='off_policy_return_lam_0.0_clip_ratio_0.05'
+EXPERIMENT_NAME='ppo_gae_with_IS_value_lam_1.0_no_clip'
 
 MODEL_PATH=Qwen/Qwen2.5-0.5B-Instruct
-# MODEL_PATH=deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B
 
 VAL_GEN_SAVE_PATH=/n/netscratch/kdbrantley_lab/Lab/jiajunh/test_verl/verl/proj/val_generation/test_value/${EXPERIMENT_NAME}
 TRAIN_DATA=/n/netscratch/kdbrantley_lab/Lab/jiajunh/test_verl/data/gsm8k_prompt/train.parquet
@@ -15,9 +14,10 @@ TEST_DATA=/n/netscratch/kdbrantley_lab/Lab/jiajunh/test_verl/data/gsm8k_prompt/t
 
 # python -m verl.trainer.main_ppo \
 #     algorithm.adv_estimator=gae \
+# algorithm.adv_estimator=off_policy_lam_return \
 python -m verl.trainer.main_off_policy_lam_returns \
-    algorithm.adv_estimator=off_policy_lam_return \
-    algorithm.lam=0.0 \
+    algorithm.adv_estimator=ppo_with_cv_for_value \
+    algorithm.lam=1.0 \
     data.train_files=$TRAIN_DATA \
     data.val_files=$TEST_DATA \
     data.train_batch_size=1024 \
@@ -56,15 +56,15 @@ python -m verl.trainer.main_off_policy_lam_returns \
     trainer.save_freq=-1 \
     trainer.test_freq=2 \
     trainer.use_legacy_worker_impl=auto \
-    trainer.total_epochs=5 \
+    trainer.total_epochs=10 \
     trainer.resume_mode=disable \
     +trainer.validation_output_values=True \
     trainer.validation_data_dir=$VAL_GEN_SAVE_PATH \
     trainer.val_before_train=True \
     actor_rollout_ref.rollout.calculate_log_probs=True \
-    actor_rollout_ref.actor.policy_loss.loss_mode=off_policy_adv \
-    actor_rollout_ref.actor.clip_ratio=0.05 \
     "$@"
+    # actor_rollout_ref.actor.policy_loss.loss_mode=off_policy_adv \
+    # actor_rollout_ref.actor.clip_ratio=10.0 \
     # actor_rollout_ref.rollout.calculate_log_probs=True \
     # actor_rollout_ref.actor.policy_loss.loss_mode=off_policy_adv \
     # actor_rollout_ref.actor.clip_ratio=0.2 \

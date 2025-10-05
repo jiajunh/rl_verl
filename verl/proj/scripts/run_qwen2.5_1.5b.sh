@@ -3,19 +3,22 @@ set -x
 export CUDA_VISIBLE_DEVICES=0,1
 
 PROJECT_NAME='Qwen2.5-1.5B-Instruct_math'
-EXPERIMENT_NAME='pg_and_off_policy_lam_returns'
-# EXPERIMENT_NAME='Qwen2.5-1.5B-Instruct_math_egae_window_256_half_mini_batch_size_no_removing'
+EXPERIMENT_NAME='ppo_gae_baseline'
+
+DATA="math"
+# DATA="gsm8k"
 
 MODEL_PATH=Qwen/Qwen2.5-1.5B-Instruct
 
-VAL_GEN_SAVE_PATH=/n/netscratch/kdbrantley_lab/Lab/jiajunh/test_verl/verl/proj/val_generation/Qwen2.5-1.5B-Instruct/math/${EXPERIMENT_NAME}
-TRAIN_DATA=/n/netscratch/kdbrantley_lab/Lab/jiajunh/test_verl/data/math/train.parquet
-TEST_DATA=/n/netscratch/kdbrantley_lab/Lab/jiajunh/test_verl/data/math/test.parquet
+VAL_GEN_SAVE_PATH=/n/netscratch/kdbrantley_lab/Lab/jiajunh/test_verl/verl/proj/val_generation/Qwen2.5-1.5B-Instruct/${DATA}/${EXPERIMENT_NAME}
+TRAIN_DATA=/n/netscratch/kdbrantley_lab/Lab/jiajunh/test_verl/data/${DATA}/train.parquet
+TEST_DATA=/n/netscratch/kdbrantley_lab/Lab/jiajunh/test_verl/data/${DATA}/test.parquet
 
-# python -m verl.trainer.main_ppo \
-    # algorithm.adv_estimator=gae \
-python -m verl.trainer.main_off_policy_lam_returns \
-    algorithm.adv_estimator=off_policy_lam_return \
+
+# python -m verl.trainer.main_off_policy_lam_returns \
+#     algorithm.adv_estimator=off_policy_lam_return \
+python -m verl.trainer.main_ppo \
+    algorithm.adv_estimator=gae \
     algorithm.lam=1.0 \
     data.train_files=$TRAIN_DATA \
     data.val_files=$TEST_DATA \
@@ -34,7 +37,6 @@ python -m verl.trainer.main_off_policy_lam_returns \
     actor_rollout_ref.actor.use_kl_loss=False \
     actor_rollout_ref.model.enable_gradient_checkpointing=True \
     actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=4 \
-    actor_rollout_ref.rollout.tensor_model_parallel_size=2 \
     actor_rollout_ref.rollout.name=vllm \
     actor_rollout_ref.rollout.dtype=bfloat16 \
     actor_rollout_ref.rollout.gpu_memory_utilization=0.6 \
@@ -50,21 +52,23 @@ python -m verl.trainer.main_off_policy_lam_returns \
     trainer.logger='["console","wandb"]' \
     trainer.project_name=$PROJECT_NAME \
     trainer.experiment_name=$EXPERIMENT_NAME \
-    trainer.n_gpus_per_node=2 \
     trainer.nnodes=1 \
     trainer.save_freq=-1 \
     trainer.test_freq=2 \
     trainer.use_legacy_worker_impl=auto \
-    trainer.total_epochs=15 \
+    trainer.total_epochs=10 \
     trainer.validation_data_dir=$VAL_GEN_SAVE_PATH \
+    trainer.n_gpus_per_node=2 \
+    actor_rollout_ref.rollout.tensor_model_parallel_size=2 \
     actor_rollout_ref.actor.ulysses_sequence_parallel_size=2 \
     critic.ulysses_sequence_parallel_size=2 \
-    trainer.resume_mode=disable \
     +data.num_workers=2 \
+    trainer.resume_mode=disable \
     +trainer.validation_output_values=True \
-    actor_rollout_ref.rollout.calculate_log_probs=True \
-    actor_rollout_ref.actor.policy_loss.loss_mode=off_policy_adv \
     "$@"
+    # actor_rollout_ref.rollout.calculate_log_probs=True \
+    # actor_rollout_ref.actor.policy_loss.loss_mode=off_policy_adv \
+    # actor_rollout_ref.actor.clip_ratio=0.05 \
     # algorithm.use_vcppo=True \
     # algorithm.lam_pi=0.95 \
     # algorithm.lam_v=1.0 \
