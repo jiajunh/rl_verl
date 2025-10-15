@@ -3,7 +3,7 @@ set -x
 export CUDA_VISIBLE_DEVICES=0
 
 PROJECT_NAME='Qwen2.5-0.5B-Instruct_gsm8k'
-EXPERIMENT_NAME='ppo_gae_with_IS_value_lam_1.0_no_clip'
+EXPERIMENT_NAME='ppo_gae_lam_1.0_no_clip_samples_4'
 
 MODEL_PATH=Qwen/Qwen2.5-0.5B-Instruct
 
@@ -12,11 +12,17 @@ TRAIN_DATA=/n/netscratch/kdbrantley_lab/Lab/jiajunh/test_verl/data/gsm8k_prompt/
 TEST_DATA=/n/netscratch/kdbrantley_lab/Lab/jiajunh/test_verl/data/gsm8k_prompt/test.parquet
 
 
-# python -m verl.trainer.main_ppo \
-#     algorithm.adv_estimator=gae \
-# algorithm.adv_estimator=off_policy_lam_return \
-python -m verl.trainer.main_off_policy_lam_returns \
-    algorithm.adv_estimator=ppo_with_cv_for_value \
+GSM8K_TEST=/n/netscratch/kdbrantley_lab/Lab/jiajunh/test_verl/data/gsm8k_prompt/test.parquet
+MINERVA_TEST=/n/netscratch/kdbrantley_lab/Lab/jiajunh/test_verl/data/minerva_math/test.parquet
+MATH_500=/n/netscratch/kdbrantley_lab/Lab/jiajunh/test_verl/data/math_500/test.parquet
+
+TEST_DATA=[$GSM8K_TEST]
+
+# algorithm.adv_estimator=ppo_with_cv_for_value \
+# python -m verl.trainer.main_off_policy_lam_returns \
+#     algorithm.adv_estimator=off_policy_lam_return \
+python -m verl.trainer.main_ppo \
+    algorithm.adv_estimator=gae \
     algorithm.lam=1.0 \
     data.train_files=$TRAIN_DATA \
     data.val_files=$TEST_DATA \
@@ -61,13 +67,15 @@ python -m verl.trainer.main_off_policy_lam_returns \
     +trainer.validation_output_values=True \
     trainer.validation_data_dir=$VAL_GEN_SAVE_PATH \
     trainer.val_before_train=True \
-    actor_rollout_ref.rollout.calculate_log_probs=True \
-    "$@"
-    # actor_rollout_ref.actor.policy_loss.loss_mode=off_policy_adv \
+    actor_rollout_ref.rollout.val_kwargs.n=4 \
+    actor_rollout_ref.rollout.val_kwargs.do_sample=True \
+    actor_rollout_ref.rollout.val_kwargs.temperature=1.0 \
+
     # actor_rollout_ref.actor.clip_ratio=10.0 \
     # actor_rollout_ref.rollout.calculate_log_probs=True \
     # actor_rollout_ref.actor.policy_loss.loss_mode=off_policy_adv \
     # actor_rollout_ref.actor.clip_ratio=0.2 \
+
     
 
     

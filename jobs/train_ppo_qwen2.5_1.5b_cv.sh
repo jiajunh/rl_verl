@@ -2,7 +2,7 @@
 
 #SBATCH --job-name=train_ppo_qwen2.5_1.5b
 #SBATCH --mem=32G
-#SBATCH -t 1-0:00
+#SBATCH -t 1-00:00
 #SBATCH -p gpu
 #SBATCH -o /n/netscratch/kdbrantley_lab/Lab/jiajunh/test_verl/logs/train_qwen2.5_1.5b_%j.out
 #SBATCH -e /n/netscratch/kdbrantley_lab/Lab/jiajunh/test_verl/logs/train_qwen2.5_1.5b_%j.err

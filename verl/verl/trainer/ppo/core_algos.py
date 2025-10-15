@@ -1019,6 +1019,49 @@ def compute_policy_loss(
     return pg_loss, pg_clipfrac, ppo_kl, pg_clipfrac_lower
 
 
+# @register_policy_loss("ppo_no_negative_adv")
+def compute_policy_loss_ppo_no_negative_adv(
+    old_log_prob,
+    log_prob,
+    advantages,
+    response_mask,
+    cliprange=None,
+    cliprange_low=None,
+    cliprange_high=None,
+    loss_agg_mode: str = "token-mean",
+):
+    negative_approx_kl = log_prob - old_log_prob
+    # Clamp negative_approx_kl for stability
+    negative_approx_kl = torch.clamp(negative_approx_kl, min=-20.0, max=20.0)
+    ratio = torch.exp(negative_approx_kl)
+    ppo_kl = verl_F.masked_mean(-negative_approx_kl, response_mask)
+
+    pg_losses1 = -advantages * ratio
+    if cliprange_low is None:
+        cliprange_low = cliprange
+    if cliprange_high is None:
+        cliprange_high = cliprange
+    pg_losses2 = -advantages * torch.clamp(
+        ratio, 1 - cliprange_low, 1 + cliprange_high
+    )  # - clip(ratio, 1-cliprange, 1+cliprange) * A
+    clip_pg_losses = torch.maximum(
+        pg_losses1, pg_losses2
+    )  # max(-ratio * A, -clip(ratio, 1-cliprange, 1+cliprange) * A)
+
+    pos_mask = (advantages > 0).float()
+    eff_mask = response_mask * pos_mask
+    pg_losses = clip_pg_losses * pos_mask
+
+    pg_clipfrac = verl_F.masked_mean(torch.gt(pg_losses2, pg_losses1).float(), eff_mask)
+
+    # we’re not dual-clipping negatives anymore -> set this metric to 0 for clarity
+    pg_clipfrac_lower = torch.tensor(0.0, device=log_prob.device)
+
+    # aggregate
+    pg_loss = agg_loss(loss_mat=pg_losses, loss_mask=eff_mask, loss_agg_mode=loss_agg_mode)
+    return pg_loss, pg_clipfrac, ppo_kl, pg_clipfrac_lower
+
+
 @register_policy_loss("gpg")
 def compute_policy_loss_gpg(old_log_prob, log_prob, advantages, response_mask, loss_agg_mode="token-mean", config=None):
     """Adapted from

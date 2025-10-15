@@ -3,7 +3,7 @@ set -x
 export CUDA_VISIBLE_DEVICES=0,1
 
 PROJECT_NAME='Qwen2.5-1.5B-Instruct_math'
-EXPERIMENT_NAME='ppo_gae_baseline'
+EXPERIMENT_NAME='off_policy_return_lam_1.0_no_clip_critic_lr_5e-6_samples_4'
 
 DATA="math"
 # DATA="gsm8k"
@@ -12,19 +12,24 @@ MODEL_PATH=Qwen/Qwen2.5-1.5B-Instruct
 
 VAL_GEN_SAVE_PATH=/n/netscratch/kdbrantley_lab/Lab/jiajunh/test_verl/verl/proj/val_generation/Qwen2.5-1.5B-Instruct/${DATA}/${EXPERIMENT_NAME}
 TRAIN_DATA=/n/netscratch/kdbrantley_lab/Lab/jiajunh/test_verl/data/${DATA}/train.parquet
-TEST_DATA=/n/netscratch/kdbrantley_lab/Lab/jiajunh/test_verl/data/${DATA}/test.parquet
 
+GSM8K_TEST=/n/netscratch/kdbrantley_lab/Lab/jiajunh/test_verl/data/gsm8k_prompt/test.parquet
+MINERVA_TEST=/n/netscratch/kdbrantley_lab/Lab/jiajunh/test_verl/data/minerva_math/test.parquet
+MATH_500=/n/netscratch/kdbrantley_lab/Lab/jiajunh/test_verl/data/math_500/test.parquet
+MATH_TEST=/n/netscratch/kdbrantley_lab/Lab/jiajunh/test_verl/data/math/test.parquet
 
-# python -m verl.trainer.main_off_policy_lam_returns \
-#     algorithm.adv_estimator=off_policy_lam_return \
-python -m verl.trainer.main_ppo \
-    algorithm.adv_estimator=gae \
+TEST_DATA=[$MATH_TEST]
+
+# python -m verl.trainer.main_ppo \
+#     algorithm.adv_estimator=gae \
+python -m verl.trainer.main_off_policy_lam_returns \
+    algorithm.adv_estimator=off_policy_lam_return \
     algorithm.lam=1.0 \
     data.train_files=$TRAIN_DATA \
     data.val_files=$TEST_DATA \
     data.train_batch_size=1024 \
     data.max_prompt_length=512 \
-    data.max_response_length=2048 \
+    data.max_response_length=1024 \
     data.filter_overlong_prompts=True \
     data.truncation='error' \
     actor_rollout_ref.model.path=$MODEL_PATH \
@@ -56,7 +61,7 @@ python -m verl.trainer.main_ppo \
     trainer.save_freq=-1 \
     trainer.test_freq=2 \
     trainer.use_legacy_worker_impl=auto \
-    trainer.total_epochs=10 \
+    trainer.total_epochs=15 \
     trainer.validation_data_dir=$VAL_GEN_SAVE_PATH \
     trainer.n_gpus_per_node=2 \
     actor_rollout_ref.rollout.tensor_model_parallel_size=2 \
@@ -65,10 +70,13 @@ python -m verl.trainer.main_ppo \
     +data.num_workers=2 \
     trainer.resume_mode=disable \
     +trainer.validation_output_values=True \
+    actor_rollout_ref.rollout.calculate_log_probs=True \
+    actor_rollout_ref.actor.policy_loss.loss_mode=off_policy_adv \
+    actor_rollout_ref.rollout.val_kwargs.n=4 \
+    actor_rollout_ref.rollout.val_kwargs.do_sample=True \
+    actor_rollout_ref.rollout.val_kwargs.temperature=1.0 \
     "$@"
     # actor_rollout_ref.rollout.calculate_log_probs=True \
     # actor_rollout_ref.actor.policy_loss.loss_mode=off_policy_adv \
     # actor_rollout_ref.actor.clip_ratio=0.05 \
-    # algorithm.use_vcppo=True \
-    # algorithm.lam_pi=0.95 \
-    # algorithm.lam_v=1.0 \
+    

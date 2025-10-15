@@ -2,11 +2,11 @@
 
 #SBATCH --job-name=train_ppo_qwen2.5_0.5b
 #SBATCH --mem=24G
-#SBATCH -t 0-03:00
+#SBATCH -t 0-06:00
 #SBATCH -p gpu_requeue
 #SBATCH -o /n/netscratch/kdbrantley_lab/Lab/jiajunh/test_verl/logs/train_qwen2.5_0.5b_%j.out
 #SBATCH -e /n/netscratch/kdbrantley_lab/Lab/jiajunh/test_verl/logs/train_qwen2.5_0.5b_%j.err
-#SBATCH --gres=gpu:nvidia_a100-sxm4-80gb:1
+#SBATCH --gres=gpu:nvidia_a100-sxm4-40gb:1
 
 
 mamba activate verl_env
