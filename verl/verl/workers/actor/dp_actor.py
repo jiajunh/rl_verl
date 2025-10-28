@@ -26,7 +26,8 @@ from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 
 import verl.utils.torch_functional as verl_F
 from verl import DataProto
-from verl.trainer.ppo.core_algos import agg_loss, compute_policy_loss, get_policy_loss_fn, kl_penalty, compute_policy_loss_ppo_no_negative_adv
+from verl.trainer.ppo.core_algos import agg_loss, compute_policy_loss, get_policy_loss_fn, kl_penalty, \
+compute_policy_loss_ppo_no_negative_adv, compute_eps_weight_policy_loss, compute_trace_weight_policy_loss
 from verl.utils.device import get_device_name, is_cuda_available, is_npu_available
 from verl.utils.fsdp_utils import FSDPModule, fsdp2_clip_grad_norm_
 from verl.utils.profiler import GPUMemoryLogger
@@ -371,7 +372,10 @@ class DataParallelPPOActor(BasePPOActor):
 
         temperature = data.meta_info["temperature"]  # temperature must be in the data.meta_info to avoid silent error
         
-        if self.config.policy_loss.loss_mode == "off_policy_adv":
+        if self.config.policy_loss.loss_mode == "off_policy_adv" or self.config.policy_loss.loss_mode == "eps_weight":
+            algo_gamma = data.meta_info["algorithm_gamma"]
+            algo_lam = data.meta_info["algorithm_lambda"]
+        elif self.config.policy_loss.loss_mode == "trace_weight":
             algo_gamma = data.meta_info["algorithm_gamma"]
             algo_lam = data.meta_info["algorithm_lambda"]
 
@@ -529,6 +533,32 @@ class DataParallelPPOActor(BasePPOActor):
                             clip_ratio_c=clip_ratio_c,
                             loss_agg_mode=loss_agg_mode,
                         )
+                    elif self.config.policy_loss.loss_mode == "eps_weight":
+                        pg_loss, pg_clipfrac, ppo_kl, pg_clipfrac_lower = compute_eps_weight_policy_loss(
+                            old_log_prob=old_log_prob,
+                            log_prob=log_prob,
+                            advantages=advantages,
+                            response_mask=response_mask,
+                            cliprange=clip_ratio,
+                            cliprange_low=clip_ratio_low,
+                            cliprange_high=clip_ratio_high,
+                            lam=algo_lam,
+                            gamma=algo_gamma,
+                            loss_agg_mode=loss_agg_mode,
+                        )
+                    elif self.config.policy_loss.loss_mode == "trace_weight":
+                        pg_loss, pg_clipfrac, ppo_kl, pg_clipfrac_lower = compute_trace_weight_policy_loss(
+                            old_log_prob=old_log_prob,
+                            log_prob=log_prob,
+                            advantages=advantages,
+                            response_mask=response_mask,
+                            cliprange=clip_ratio,
+                            cliprange_low=clip_ratio_low,
+                            cliprange_high=clip_ratio_high,
+                            lam=algo_lam,
+                            gamma=algo_gamma,
+                            loss_agg_mode=loss_agg_mode,
+                        )
                     elif self.config.policy_loss.loss_mode == "ppo_no_negative_adv":
                         pg_loss, pg_clipfrac, ppo_kl, pg_clipfrac_lower = compute_policy_loss_ppo_no_negative_adv(
                             old_log_prob=old_log_prob,
@@ -578,7 +608,6 @@ class DataParallelPPOActor(BasePPOActor):
 
                     if entropy_coeff != 0:
                         entropy_loss = agg_loss(loss_mat=entropy, loss_mask=response_mask, loss_agg_mode=loss_agg_mode)
-
                         # compute policy loss
                         policy_loss = pg_loss - entropy_loss * entropy_coeff
                     else:

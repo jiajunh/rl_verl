@@ -2,8 +2,8 @@ set -x
 
 export CUDA_VISIBLE_DEVICES=0
 
-PROJECT_NAME='Qwen2.5-0.5B-Instruct_gsm8k_grpo_test'
-EXPERIMENT_NAME='grpo_lam_both_lam_0.99'
+PROJECT_NAME='Qwen2.5-0.5B-Instruct_gsm8k_grpo'
+EXPERIMENT_NAME='grpo_lam_eps_weight_lam_0.99'
 
 DATA="gsm8k"
 # DATA="gsm8k"
@@ -28,16 +28,16 @@ python -m verl.trainer.main_off_policy_lam_returns \
     algorithm.lam=0.99 \
     data.train_files=$TRAIN_DATA \
     data.val_files=$TEST_DATA \
-    data.train_batch_size=2 \
+    data.train_batch_size=16 \
     data.max_prompt_length=256 \
-    data.max_response_length=256 \
+    data.max_response_length=512 \
     data.filter_overlong_prompts=True \
     data.truncation='error' \
     actor_rollout_ref.model.path=$MODEL_PATH \
     actor_rollout_ref.actor.optim.lr=1e-6 \
     actor_rollout_ref.model.use_remove_padding=True \
-    actor_rollout_ref.actor.ppo_mini_batch_size=2 \
-    actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=2 \
+    actor_rollout_ref.actor.ppo_mini_batch_size=16 \
+    actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=4 \
     actor_rollout_ref.actor.fsdp_config.param_offload=False \
     actor_rollout_ref.actor.fsdp_config.optimizer_offload=False \
     actor_rollout_ref.actor.use_kl_loss=True \
@@ -45,18 +45,18 @@ python -m verl.trainer.main_off_policy_lam_returns \
     actor_rollout_ref.actor.kl_loss_type=low_var_kl \
     actor_rollout_ref.actor.entropy_coeff=0 \
     actor_rollout_ref.model.enable_gradient_checkpointing=True \
-    actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=2 \
+    actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=4 \
     actor_rollout_ref.rollout.tensor_model_parallel_size=1 \
     actor_rollout_ref.rollout.name=vllm \
     actor_rollout_ref.rollout.dtype=bfloat16 \
     actor_rollout_ref.rollout.gpu_memory_utilization=0.5 \
-    actor_rollout_ref.rollout.n=4 \
-    actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=2 \
+    actor_rollout_ref.rollout.n=8 \
+    actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=4 \
     critic.optim.lr=5e-6 \
     critic.model.use_remove_padding=True \
     critic.model.path=$MODEL_PATH \
     critic.model.enable_gradient_checkpointing=True \
-    critic.ppo_micro_batch_size_per_gpu=2 \
+    critic.ppo_micro_batch_size_per_gpu=4 \
     critic.model.fsdp_config.param_offload=False \
     critic.model.fsdp_config.optimizer_offload=False \
     algorithm.use_kl_in_reward=False \
@@ -67,16 +67,16 @@ python -m verl.trainer.main_off_policy_lam_returns \
     trainer.n_gpus_per_node=1 \
     trainer.nnodes=1 \
     trainer.save_freq=-1 \
-    trainer.test_freq=2 \
+    trainer.test_freq=32 \
     trainer.use_legacy_worker_impl=auto \
-    trainer.total_epochs=1 \
+    trainer.total_epochs=5 \
     trainer.resume_mode=disable \
     +trainer.validation_output_values=False \
     trainer.validation_data_dir=$VAL_GEN_SAVE_PATH \
     trainer.val_before_train=False \
     actor_rollout_ref.rollout.calculate_log_probs=True \
     actor_rollout_ref.rollout.val_kwargs.do_sample=False \
-    actor_rollout_ref.actor.policy_loss.loss_mode=trace_weight \
+    actor_rollout_ref.actor.policy_loss.loss_mode=eps_weight \
     "$@"
     # actor_rollout_ref.actor.policy_loss.loss_mode=ppo_no_negative_adv \
     # actor_rollout_ref.rollout.calculate_log_probs=True \

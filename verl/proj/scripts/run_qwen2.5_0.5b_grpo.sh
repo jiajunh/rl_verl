@@ -2,13 +2,14 @@ set -x
 
 export CUDA_VISIBLE_DEVICES=0
 
-PROJECT_NAME='Qwen2.5-0.5B-Instruct_gsm8k'
-EXPERIMENT_NAME='ppo_grpo_lam_baseline'
+PROJECT_NAME='Qwen2.5-0.5B-Instruct_gsm8k_grpo'
+EXPERIMENT_NAME='ppo_grpo_lam_1.0_baseline_with_sft'
 
 DATA="gsm8k"
 # DATA="gsm8k"
 
-MODEL_PATH=Qwen/Qwen2.5-0.5B-Instruct
+# MODEL_PATH=Qwen/Qwen2.5-0.5B-Instruct
+MODEL_PATH=/n/netscratch/kdbrantley_lab/Lab/jiajunh/test_verl/models/qwen2.5_0.5b/global_step_29/huggingface
 
 VAL_GEN_SAVE_PATH=/n/netscratch/kdbrantley_lab/Lab/jiajunh/test_verl/verl/proj/val_generation/Qwen2.5-1.5B-Instruct/${DATA}/${EXPERIMENT_NAME}
 TRAIN_DATA=/n/netscratch/kdbrantley_lab/Lab/jiajunh/test_verl/data/${DATA}/train.parquet
@@ -29,7 +30,7 @@ python -m verl.trainer.main_ppo \
     algorithm.lam=1.0 \
     data.train_files=$TRAIN_DATA \
     data.val_files=$TEST_DATA \
-    data.train_batch_size=1024 \
+    data.train_batch_size=16 \
     data.max_prompt_length=256 \
     data.max_response_length=512 \
     data.filter_overlong_prompts=True \
@@ -37,8 +38,8 @@ python -m verl.trainer.main_ppo \
     actor_rollout_ref.model.path=$MODEL_PATH \
     actor_rollout_ref.actor.optim.lr=1e-6 \
     actor_rollout_ref.model.use_remove_padding=True \
-    actor_rollout_ref.actor.ppo_mini_batch_size=256 \
-    actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=8 \
+    actor_rollout_ref.actor.ppo_mini_batch_size=16 \
+    actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=4 \
     actor_rollout_ref.actor.fsdp_config.param_offload=False \
     actor_rollout_ref.actor.fsdp_config.optimizer_offload=False \
     actor_rollout_ref.actor.use_kl_loss=True \
@@ -68,14 +69,15 @@ python -m verl.trainer.main_ppo \
     trainer.n_gpus_per_node=1 \
     trainer.nnodes=1 \
     trainer.save_freq=-1 \
-    trainer.test_freq=2 \
+    trainer.test_freq=32 \
     trainer.use_legacy_worker_impl=auto \
-    trainer.total_epochs=10 \
+    trainer.total_epochs=5 \
     trainer.resume_mode=disable \
     +trainer.validation_output_values=False \
     trainer.validation_data_dir=$VAL_GEN_SAVE_PATH \
     trainer.val_before_train=True \
-    actor_rollout_ref.rollout.calculate_log_probs=False \
+    actor_rollout_ref.rollout.calculate_log_probs=True \
+    actor_rollout_ref.rollout.val_kwargs.do_sample=False \
     "$@"
     # actor_rollout_ref.actor.policy_loss.loss_mode=ppo_no_negative_adv \
     # actor_rollout_ref.rollout.calculate_log_probs=True \

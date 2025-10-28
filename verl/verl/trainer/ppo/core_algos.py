@@ -129,6 +129,7 @@ class AdvantageEstimator(str, Enum):
     EGAE = "egae"
     OFF_POLICY_LAM_RETURN = "off_policy_lam_return"
     PPO_WITH_CV_FOR_VALUE = "ppo_with_cv_for_value"
+    GRPO_LAM = "grpo_lam"
     
 
 class AdaptiveKLController:
@@ -527,6 +528,48 @@ def compute_grpo_outcome_advantage(
                 scores[i] = (scores[i] - id2mean[index[i]]) / (id2std[index[i]] + epsilon)
             else:
                 scores[i] = scores[i] - id2mean[index[i]]
+        scores = scores.unsqueeze(-1) * response_mask
+
+    return scores, scores
+
+
+@register_adv_est(AdvantageEstimator.GRPO_LAM) 
+def compute_grpo_lam_outcome_advantage(
+    token_level_rewards: torch.Tensor,
+    response_mask: torch.Tensor,
+    index: np.ndarray,
+    epsilon: float = 1e-6,
+    norm_adv_by_std_in_grpo: bool = True,
+    config: Optional[AlgoConfig] = None,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    
+    scores = token_level_rewards.sum(dim=-1)
+
+    id2score = defaultdict(list)
+    id2mean = {}
+    id2std = {}
+
+    with torch.no_grad():
+        bsz = scores.shape[0]
+        for i in range(bsz):
+            id2score[index[i]].append(scores[i])
+        for idx in id2score:
+            if len(id2score[idx]) == 1:
+                id2mean[idx] = torch.tensor(0.0)
+                id2std[idx] = torch.tensor(1.0)
+            elif len(id2score[idx]) > 1:
+                id2mean[idx] = torch.mean(torch.tensor(id2score[idx]))
+                id2std[idx] = torch.std(torch.tensor([id2score[idx]]))
+            else:
+                raise ValueError(f"no score in prompt index: {idx}")
+        for i in range(bsz):
+            if norm_adv_by_std_in_grpo:
+                scores[i] = (scores[i] - id2mean[index[i]]) / (id2std[index[i]] + epsilon)
+            else:
+                scores[i] = scores[i] - id2mean[index[i]]
+
+        # limit the negtive advantages
+        scores = scores.clamp_min(-0.1)
         scores = scores.unsqueeze(-1) * response_mask
 
     return scores, scores
@@ -1054,12 +1097,115 @@ def compute_policy_loss_ppo_no_negative_adv(
 
     pg_clipfrac = verl_F.masked_mean(torch.gt(pg_losses2, pg_losses1).float(), eff_mask)
 
-    # we’re not dual-clipping negatives anymore -> set this metric to 0 for clarity
     pg_clipfrac_lower = torch.tensor(0.0, device=log_prob.device)
 
     # aggregate
     pg_loss = agg_loss(loss_mat=pg_losses, loss_mask=eff_mask, loss_agg_mode=loss_agg_mode)
     return pg_loss, pg_clipfrac, ppo_kl, pg_clipfrac_lower
+
+
+def compute_eps_weight_policy_loss(
+    old_log_prob,
+    log_prob,
+    advantages,
+    response_mask,
+    cliprange=None,
+    cliprange_low=None,
+    cliprange_high=None,
+    lam=1.0,
+    gamma=1.0,
+    loss_agg_mode: str = "token-mean",
+):
+
+    negative_approx_kl = log_prob - old_log_prob
+    # Clamp negative_approx_kl for stability
+    negative_approx_kl = torch.clamp(negative_approx_kl, min=-20.0, max=20.0)
+    ratio = torch.exp(negative_approx_kl)
+    ppo_kl = verl_F.masked_mean(-negative_approx_kl, response_mask)
+
+    coef1 = ratio
+
+    if cliprange_low is None:
+        cliprange_low = cliprange
+    if cliprange_high is None:
+        cliprange_high = cliprange
+
+    coef2 = torch.clamp(ratio, 1 - cliprange_low, 1 + cliprange_high)
+
+    A = -torch.minimum(coef1, coef2) * advantages
+
+    pg_clipfrac = verl_F.masked_mean(torch.gt(coef2, coef1).float(), response_mask)
+
+    r = lam * gamma
+    batch, seq = A.shape
+    w = torch.zeros(batch, seq, device=response_mask.device)
+    for t in range(seq):
+        if t == 0:
+            w[:, t] = 1.0
+        else:
+            w[:, t] = 1.0 + r * w[:, t-1]
+
+    eps = w * (1 + 1 / (1 + torch.exp(1 - log_prob)))
+
+    pg_losses = eps * A
+    pg_losses = agg_loss(loss_mat=pg_losses, loss_mask=response_mask, loss_agg_mode=loss_agg_mode)
+
+    return pg_losses, pg_clipfrac, ppo_kl, torch.tensor(0.0)
+
+
+def compute_trace_weight_policy_loss(
+    old_log_prob,
+    log_prob,
+    advantages,
+    response_mask,
+    cliprange=None,
+    cliprange_low=None,
+    cliprange_high=None,
+    lam=1.0,
+    gamma=1.0,
+    loss_agg_mode: str = "token-mean",
+):
+    if cliprange_low is None:
+        cliprange_low = cliprange
+    if cliprange_high is None:
+        cliprange_high = cliprange
+
+    negative_approx_kl = log_prob - old_log_prob
+    ppo_kl = verl_F.masked_mean(-negative_approx_kl, response_mask)
+
+    # print("-"*60)
+    log_coef1 = []
+    batch, seq = advantages.shape
+    actual_seq_len = response_mask.sum(dim=1).reshape(batch, 1)
+    r = lam * gamma
+
+    t_idx = torch.arange(seq, device=log_prob.device, dtype=log_prob.dtype).unsqueeze(0).expand(batch, seq)
+    t_rev_idx = actual_seq_len - t_idx
+
+    trace_id = torch.max(torch.min(t_idx, t_rev_idx), torch.zeros(t_idx.shape).to(log_prob.device))
+
+    r_pow = torch.pow(r, t_idx)
+
+    for i in range(seq):
+        log_p = negative_approx_kl[:,:i+1]
+        trace_r_pow = r_pow[:,:i+1].flip(dims=[1])
+        step_log_coef1 = (log_p * trace_r_pow).sum(dim=1)
+        # print(step_log_coef1.shape)
+        log_coef1.append(step_log_coef1)
+    
+    log_coef1 = torch.stack(log_coef1, dim=1)
+    # print(log_coef1.shape)
+
+    log_coef1 = torch.clamp(log_coef1, min=-20.0, max=20.0)
+    coef1 = torch.exp(log_coef1)
+    coef2 = torch.clamp(coef1, 1 - cliprange_low, 1 + cliprange_high)
+
+    pg_clipfrac = verl_F.masked_mean(torch.gt(coef2, coef1).float(), response_mask)
+
+    pg_losses = -torch.minimum(coef1, coef2) * advantages
+    pg_losses = agg_loss(loss_mat=pg_losses, loss_mask=response_mask, loss_agg_mode=loss_agg_mode)
+
+    return pg_losses, pg_clipfrac, ppo_kl, torch.tensor(0.0)
 
 
 @register_policy_loss("gpg")
